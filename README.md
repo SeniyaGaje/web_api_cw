@@ -4,9 +4,9 @@ A backend REST API for the Sri Lanka Sustainable Energy Authority, built for the
 
 | | URL |
 |---|---|
-| Live API | `https://<your-project>.vercel.app` *(fill in after the first deploy)* |
-| Swagger UI | `https://<your-project>.vercel.app/api-docs` |
-| OpenAPI spec (JSON) | `https://<your-project>.vercel.app/api-docs/openapi.json` |
+| Live API | https://web-api-cw-psi.vercel.app |
+| Swagger UI | https://web-api-cw-psi.vercel.app/api-docs |
+| OpenAPI spec (JSON) | https://web-api-cw-psi.vercel.app/api-docs/openapi.json |
 
 ## Stack
 
