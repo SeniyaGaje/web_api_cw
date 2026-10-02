@@ -1,0 +1,7 @@
+node_modules/
+docs/
+.claude
+
+# Local secrets (DATABASE_URL, JWT_SECRET)
+.env
+
