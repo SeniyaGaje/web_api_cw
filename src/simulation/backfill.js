@@ -1,5 +1,5 @@
-const { pool, insertMany } = require('./db');
-const { findLatestReadings } = require('./latest-readings');
+const { pool, insertMany } = require('../db/pool');
+const { findLatestReadings } = require('../repositories/readings.repository');
 const { SLOT_MS, READING_COLUMNS, createRng, floorToSlot, simulateReading } = require('./reading-simulator');
 
 const FLUSH_EVERY = 5000; // insert in chunks so a catch-up never holds too many rows in memory
