@@ -1,5 +1,5 @@
-const { backfillReadings } = require('../simulation/backfill');
-const { floorToSlot } = require('../simulation/reading-simulator');
+const { backfillReadings } = require('../backfill');
+const { floorToSlot } = require('../reading-simulator');
 
 // Runs before every /api/v1 request and makes sure readings exist up to the latest 15-minute slot.
 // On Vercel there is no always-running process that could do this on a timer, so the requests themselves

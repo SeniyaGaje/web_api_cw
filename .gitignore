@@ -1,6 +1,5 @@
 node_modules/
-# Only the top-level docs folder (brief, rubric, test credentials), not src/docs (the OpenAPI document)
-/docs/
+docs/
 .claude
 
 # Local secrets (DATABASE_URL, JWT_SECRET)

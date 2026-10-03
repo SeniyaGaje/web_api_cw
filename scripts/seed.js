@@ -7,8 +7,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const bcrypt = require('bcryptjs');
-const { pool, insertMany } = require('../src/db/pool');
-const { SLOT_MS, READING_COLUMNS, createRng, floorToSlot, simulateReading } = require('../src/simulation/reading-simulator');
+const { pool, insertMany } = require('../src/db');
+const { SLOT_MS, READING_COLUMNS, createRng, floorToSlot, simulateReading } = require('../src/reading-simulator');
 
 const RNG_SEED = 2026;
 const HISTORY_DAYS = 7;

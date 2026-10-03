@@ -13,27 +13,7 @@ A backend REST API for the Sri Lanka Sustainable Energy Authority, built for the
 - **Node.js 22 + Express 5**
 - **PostgreSQL on Neon** (free plan, Singapore), queried with `pg` using plain parameterised SQL
 - **Vercel** (free Hobby plan, Singapore region) over HTTPS: the Express app runs as a serverless function
-- **OpenAPI 3** document in `src/docs/openapi.js`, shown with Swagger UI (loaded from the jsDelivr CDN)
-
-## Endpoints
-
-All under `/api/v1` except the health check. Every collection is paginated (`limit`, `offset`) and returns `{ count, next, previous, results }`. Every 200/201 carries a strong `ETag` and `Last-Modified`; `If-None-Match` / `If-Modified-Since` give `304`, and `If-Match` on PUT/DELETE gives `412` when the resource has changed. Every error has the body `{ code, message, details, more_info }`.
-
-| Method | URI | What it does |
-|---|---|---|
-| GET | `/` | Health check |
-| GET | `/provinces`, `/provinces/{province-id}` | Provinces |
-| GET | `/districts`, `/districts/{district-id}` | Districts; filter `?province-id=` |
-| GET | `/substations`, `/substations/{substation-id}` | Grid substations; filter `?province-id=`, `?district-id=` |
-| GET | `/installations` | Installations; filter `?province-id=`, `?district-id=`, `?substation-id=` |
-| POST | `/installations` | Register an installation (201 + Location) |
-| GET | `/installations/{installation-id}` | Composite: installation + substation/district/province + latest reading |
-| PUT | `/installations/{installation-id}` | Full replacement (honours If-Match) |
-| DELETE | `/installations/{installation-id}` | Soft delete; readings are kept (honours If-Match) |
-| GET | `/installations/{installation-id}/readings` | Reading history; `?from=`, `?to=`, `?sort=timestamp` or `-timestamp` |
-| POST | `/installations/{installation-id}/readings` | A meter pushes a reading (201 + Location; 409 on a duplicate timestamp) |
-| GET | `/installations/{installation-id}/readings/{reading-id}` | One reading |
-| GET | `/installations/{installation-id}/last-reading` | The latest reading (what it is generating now) |
+- **OpenAPI 3** document in `src/openapi.js`, shown with Swagger UI (loaded from the jsDelivr CDN)
 
 ## Project layout
 
@@ -42,19 +22,17 @@ All under `/api/v1` except the health check. Every collection is paginated (`lim
 | `migrations/` | Versioned SQL migrations, applied in filename order |
 | `scripts/migrate.js` | Applies pending migrations and records them in `schema_migrations` |
 | `scripts/seed.js` | Deterministic seed: empties every table and reloads the dataset |
-| `src/app.js` | The Express app: the order every request passes through. Vercel runs this file as a serverless function |
+| `src/app.js` | The Express app. Vercel imports this file and runs it as a serverless function |
 | `src/server.js` | Local development only: runs the app on a port |
-| `src/config/env.js` | Reads the environment variables |
-| `src/db/pool.js` | Shared PostgreSQL connection pool and batched insert helper |
-| `src/routes/` | One file per resource (`*.routes.js`): reads the request, calls a repository, sends the response |
-| `src/repositories/` | One file per resource (`*.repository.js`): all the SQL. `readings.repository.js` holds the single "latest reading" query |
-| `src/validators/` | Checks request bodies and query strings, collecting every problem into one 400 |
-| `src/middleware/` | 406/415 checks, the central error handler, and keeping readings current |
-| `src/utils/` | Shared helpers: the `ApiError` type, pagination, ETag/304/412 handling, 405 responses, input checks |
-| `src/simulation/` | The reading simulator and the backfill that fills in readings up to now |
-| `src/docs/openapi.js` | The OpenAPI 3 document |
+| `src/config.js` | Reads the environment variables |
+| `src/db.js` | Shared PostgreSQL connection pool and batched insert helper |
+| `src/openapi.js` | The OpenAPI 3 document |
+| `src/middleware/keep-readings-current.js` | Before each API request, makes sure readings are filled in up to now |
+| `src/backfill.js` | Generates the missing readings (one database lock, so instances never clash) |
+| `src/reading-simulator.js` | Generates realistic meter readings, for the seed and the backfill |
+| `src/latest-readings.js` | The single "latest reading" query |
 | `vercel.json` | Vercel settings: run the function in Singapore (`sin1`), next to the database |
-| `docs/` | Coursework brief, marking rubric and test credentials (not committed) |
+| `docs/` | Coursework brief, marking rubric and test credentials |
 
 ## Run locally (Windows PowerShell)
 
@@ -99,7 +77,7 @@ Use `curl.exe`, not `curl`: in Windows PowerShell 5.1, `curl` is an alias for `I
 4. Every push to `main` deploys again automatically.
 5. **Check the live service:**
    ```powershell
-   curl.exe -i https://web-api-cw-psi.vercel.app/
+   curl.exe -i https://<your-project>.vercel.app/
    ```
 
 ### How the readings stay current on Vercel

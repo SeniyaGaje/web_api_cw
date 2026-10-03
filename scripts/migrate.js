@@ -1,11 +1,10 @@
 // Applies versioned database migrations: each .sql file in /migrations runs once, in filename order.
 // Applied files are recorded in schema_migrations, so running this again only applies new files.
-// Run with: npm run migrate (against the dev database from .env, or against production by setting DATABASE_URL
-// in the shell first; Vercel does not run migrations).
+// Run with: npm run migrate (Render also runs it on every deploy; see render.yaml).
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { pool } = require('../src/db/pool');
+const { pool } = require('../src/db');
 
 const MIGRATIONS_DIR = path.join(__dirname, '..', 'migrations');
 
