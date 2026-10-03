@@ -1,6 +1,6 @@
 const { Pool, types } = require('pg');
 const { attachDatabasePool } = require('@vercel/functions');
-const config = require('./config');
+const config = require('../config/env');
 
 // By default pg returns some Postgres types as strings. Convert the two we use so the JSON is right:
 // bigint (reading_id, COUNT(*)) becomes a number - safe, our values stay far below JavaScript's 2^53 limit;
