@@ -21,19 +21,38 @@ All under `/api/v1` except the health check. Every collection is paginated (`lim
 
 | Method | URI | What it does |
 |---|---|---|
-| GET | `/` | Health check |
+| GET | `/` | Health check (public) |
+| POST | `/tokens` | Get a JWT (public): `grant_type` `device` or `password` |
 | GET | `/provinces`, `/provinces/{province-id}` | Provinces |
 | GET | `/districts`, `/districts/{district-id}` | Districts; filter `?province-id=` |
+| GET | `/districts/{district-id}/generation-summary` | Current total power and today's energy for the district |
 | GET | `/substations`, `/substations/{substation-id}` | Grid substations; filter `?province-id=`, `?district-id=` |
 | GET | `/installations` | Installations; filter `?province-id=`, `?district-id=`, `?substation-id=` |
-| POST | `/installations` | Register an installation (201 + Location) |
+| POST | `/installations` | Register an installation (201 + Location). Admin only |
 | GET | `/installations/{installation-id}` | Composite: installation + substation/district/province + latest reading |
-| PUT | `/installations/{installation-id}` | Full replacement (honours If-Match) |
-| DELETE | `/installations/{installation-id}` | Soft delete; readings are kept (honours If-Match) |
+| PUT | `/installations/{installation-id}` | Full replacement (honours If-Match). Admin only |
+| DELETE | `/installations/{installation-id}` | Soft delete; readings are kept (honours If-Match). Admin only |
 | GET | `/installations/{installation-id}/readings` | Reading history; `?from=`, `?to=`, `?sort=timestamp` or `-timestamp` |
-| POST | `/installations/{installation-id}/readings` | A meter pushes a reading (201 + Location; 409 on a duplicate timestamp) |
+| POST | `/installations/{installation-id}/readings` | A meter pushes a reading (201 + Location; 409 on a duplicate timestamp). That installation's device token only |
 | GET | `/installations/{installation-id}/readings/{reading-id}` | One reading |
 | GET | `/installations/{installation-id}/last-reading` | The latest reading (what it is generating now) |
+
+## Authentication
+
+Every `/api/v1` route except `POST /tokens` needs `Authorization: Bearer <token>` (401 otherwise). Tokens are HS256 JWTs, valid for 1 hour.
+
+| Who | Request body | Scope | Can do |
+|---|---|---|---|
+| Meter | `{ "grant_type": "device", "installation_id", "device_secret" }` | `readings:write` | POST readings for its own installation only |
+| SLSEA user | `{ "grant_type": "password", "username", "password" }` | `generation:read` | GET, inside their jurisdiction |
+| Admin | same as a user | `generation:read installations:write` | GET everything, POST/PUT/DELETE installations |
+
+A missing scope is 403, so a meter cannot read and a user cannot push readings. National and admin users see everything; a provincial user sees one province, and a district user sees one district (plus its province's record). Collections are filtered to the jurisdiction automatically; a member or filter outside it is 403. In Swagger UI, get a token from `POST /tokens` and paste it into **Authorize**.
+
+```powershell
+$token = (Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/v1/tokens -ContentType 'application/json' -Body '{"grant_type":"password","username":"colombo.operator","password":"SolarColombo26"}').access_token
+curl.exe -i -H "Authorization: Bearer $token" http://localhost:3000/api/v1/districts/DT-01/generation-summary
+```
 
 ## Project layout
 
@@ -49,12 +68,12 @@ All under `/api/v1` except the health check. Every collection is paginated (`lim
 | `src/routes/` | One file per resource (`*.routes.js`): reads the request, calls a repository, sends the response |
 | `src/repositories/` | One file per resource (`*.repository.js`): all the SQL. `readings.repository.js` holds the single "latest reading" query |
 | `src/validators/` | Checks request bodies and query strings, collecting every problem into one 400 |
-| `src/middleware/` | 406/415 checks, the central error handler, and keeping readings current |
+| `src/middleware/` | Authentication, scopes and jurisdiction (`auth.js`), 406/415 checks, the central error handler, and keeping readings current |
 | `src/utils/` | Shared helpers: the `ApiError` type, pagination, ETag/304/412 handling, 405 responses, input checks |
 | `src/simulation/` | The reading simulator and the backfill that fills in readings up to now |
 | `src/docs/openapi.js` | The OpenAPI 3 document |
 | `vercel.json` | Vercel settings: run the function in Singapore (`sin1`), next to the database |
-| `docs/` | Coursework brief, marking rubric and test credentials (not committed) |
+| `TEST-CREDENTIALS.md` | Seeded test logins and device secrets (written by `npm run seed`) |
 
 ## Run locally (Windows PowerShell)
 
@@ -117,4 +136,4 @@ Vercel runs the API only while a request is being handled; nothing runs in betwe
 
 ## Seed data
 
-`npm run seed` loads Sri Lanka's real 9 provinces and 25 districts, 30 grid substations, 220 installations and 5 SLSEA users. Each installation gets 7 days of readings at 15-minute intervals, 147,840 in total. Output is zero overnight and peaks around midday, with occasional cloud dips. A fixed random seed makes the dataset the same on every run. Test logins and device secrets are listed in [docs/test-credentials.md](docs/test-credentials.md); they are coursework test data only.
+`npm run seed` loads Sri Lanka's real 9 provinces and 25 districts, 30 grid substations, 220 installations and 5 SLSEA users. Each installation gets 7 days of readings at 15-minute intervals, 147,840 in total. Output is zero overnight and peaks around midday, with occasional cloud dips. A fixed random seed makes the dataset the same on every run. Test logins and device secrets are listed in [TEST-CREDENTIALS.md](TEST-CREDENTIALS.md); they are coursework test data only.

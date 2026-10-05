@@ -33,7 +33,7 @@ const GEOGRAPHY = [
 const CAPACITIES_KW = [3, 3, 4, 5, 5, 5, 6, 8, 10, 10, 12, 15, 20]; // typical rooftop sizes; small systems are most common
 const STREETS = ['Temple Road', 'Station Road', 'Main Street', 'Lake Road', 'School Lane', 'Church Road', 'Hospital Road', 'Galle Road', 'Kandy Road', 'Park Avenue'];
 
-// Coursework test accounts only (listed in docs/test-credentials.md). Colombo is DT-01 and Gampaha is DT-02.
+// Coursework test accounts only (listed in TEST-CREDENTIALS.md). Colombo is DT-01 and Gampaha is DT-02.
 const USERS = [
   { user_id: 'USR-001', username: 'national.analyst', password: 'SolarNational26', role: 'national', jurisdiction_id: null },
   { user_id: 'USR-002', username: 'western.operator', password: 'SolarWestern26', role: 'provincial', jurisdiction_id: 'PV-01' },
@@ -134,9 +134,7 @@ function writeTestCredentials(provinces, districts, deviceSecrets) {
     ...deviceSecrets.map((d) => `| ${d.installation_id} | ${d.meter_id} | ${d.substation} | ${d.deviceSecret} |`),
     '',
   ];
-  const docsDir = path.join(__dirname, '..', 'docs');
-  fs.mkdirSync(docsDir, { recursive: true });
-  fs.writeFileSync(path.join(docsDir, 'test-credentials.md'), lines.join('\n'));
+  fs.writeFileSync(path.join(__dirname, '..', 'TEST-CREDENTIALS.md'), lines.join('\n'));
 }
 
 async function seed() {
@@ -175,7 +173,7 @@ async function seed() {
     `Seeded ${provinces.length} provinces, ${districts.length} districts, ${substations.length} substations, ` +
       `${installations.length} installations, ${readings.length} readings and ${users.length} users.`
   );
-  console.log('Test credentials written to docs/test-credentials.md');
+  console.log('Test credentials written to TEST-CREDENTIALS.md');
 }
 
 seed()

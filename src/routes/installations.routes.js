@@ -7,26 +7,31 @@ const { parsePagination, sendPage } = require('../utils/pagination');
 const { sendRepresentation, checkIfMatch } = require('../utils/conditional-requests');
 const { optionalFilter } = require('../utils/validation');
 const methodNotAllowed = require('../utils/method-not-allowed');
+const { requireScope, requireJurisdiction, jurisdictionFilters } = require('../middleware/auth');
 const { validateInstallation } = require('../validators/installation.validator');
 const installations = require('../repositories/installations.repository');
 const substations = require('../repositories/substations.repository');
 
 const router = express.Router();
+const canRead = requireScope('generation:read');
+const canWrite = requireScope('installations:write'); // admin only
 
-// §4.2 collection resource: all active installations, paginated.
+// §4.2 collection resource: the active installations in the caller's jurisdiction, paginated.
 // §10.2 filters by jurisdiction: ?province-id=, ?district-id=, ?substation-id= (they can be combined).
-router.get('/', async (req, res) => {
+router.get('/', canRead, async (req, res) => {
   const pagination = parsePagination(req.query);
-  const provinceId = optionalFilter(req.query, 'province-id');
-  const districtId = optionalFilter(req.query, 'district-id');
-  const substationId = optionalFilter(req.query, 'substation-id');
-  const page = await installations.listInstallations({ provinceId, districtId, substationId, ...pagination });
+  const filters = await jurisdictionFilters(req, {
+    provinceId: optionalFilter(req.query, 'province-id'),
+    districtId: optionalFilter(req.query, 'district-id'),
+    substationId: optionalFilter(req.query, 'substation-id'),
+  });
+  const page = await installations.listInstallations({ ...filters, ...pagination });
   sendPage(req, res, page, pagination);
 });
 
 // §7.3: POST to a collection creates a new member -> 201 Created, a Location header saying where the new
 // installation now lives, and ETag / Last-Modified for the representation returned in the body.
-router.post('/', async (req, res) => {
+router.post('/', canWrite, async (req, res) => {
   const input = validateInstallation(req.body, { creating: true });
   await requireSubstation(input.substation_id);
   const deviceSecretHash = await bcrypt.hash(input.device_secret, 10); // the plain secret is never stored
@@ -45,14 +50,15 @@ router.post('/', async (req, res) => {
 router.all('/', methodNotAllowed('GET', 'POST'));
 
 // §4.3 composite resource: the installation, where it sits in the hierarchy, and its latest reading.
-router.get('/:installationId', async (req, res) => {
+router.get('/:installationId', canRead, async (req, res) => {
   const installation = await findCompositeOr404(req.params.installationId);
+  requireJurisdiction(req, { province_id: installation.province.province_id, district_id: installation.district.district_id });
   sendRepresentation(req, res, installation, lastModifiedOf(installation));
 });
 
 // §7.2 PUT replaces the whole installation (it is not a partial update: optional fields that are left out are
 // cleared). It is idempotent: sending the same body twice leaves the same result. If-Match is honoured (412).
-router.put('/:installationId', async (req, res) => {
+router.put('/:installationId', canWrite, async (req, res) => {
   const input = validateInstallation(req.body, { creating: false });
   const current = await findCompositeOr404(req.params.installationId);
   checkIfMatch(req, current);
@@ -70,7 +76,7 @@ router.put('/:installationId', async (req, res) => {
 
 // §7.4 DELETE: a soft delete. The installation disappears from the API (a second DELETE, or any GET, is 404),
 // but its readings are kept as history; they are never cascade-deleted. If-Match is honoured (412).
-router.delete('/:installationId', async (req, res) => {
+router.delete('/:installationId', canWrite, async (req, res) => {
   const current = await findCompositeOr404(req.params.installationId);
   checkIfMatch(req, current);
   const deleted = await installations.softDeleteInstallation(req.params.installationId);

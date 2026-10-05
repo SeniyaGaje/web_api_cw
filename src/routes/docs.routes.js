@@ -25,7 +25,7 @@ router.get('/api-docs', (req, res) => {
 <body>
   <div id="swagger-ui"></div>
   <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@${SWAGGER_UI_VERSION}/swagger-ui-bundle.js"></script>
-  <script>SwaggerUIBundle({ url: '/api-docs/openapi.json', dom_id: '#swagger-ui' });</script>
+  <script>SwaggerUIBundle({ url: '/api-docs/openapi.json', dom_id: '#swagger-ui', persistAuthorization: true });</script>
 </body>
 </html>`);
 });

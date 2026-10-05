@@ -247,3 +247,59 @@ The AI's follow-up plan changed the timer to a 5-minute check (the reason is in 
 **Files changed:** `PROMPTS.md`, `README.md`, `migrations/002_add_hierarchy_updated_at.sql` (new), `scripts/migrate.js`, `scripts/seed.js`, `src/app.js`, `src/server.js`, moved: `src/config.js` → `src/config/env.js`, `src/db.js` → `src/db/pool.js`, `src/openapi.js` → `src/docs/openapi.js`, `src/backfill.js` → `src/simulation/backfill.js`, `src/reading-simulator.js` → `src/simulation/reading-simulator.js`, `src/latest-readings.js` → `src/repositories/readings.repository.js`; new: `src/routes/*.routes.js` (8 files), `src/repositories/{provinces,districts,substations,installations}.repository.js`, `src/validators/{installation,reading}.validator.js`, `src/middleware/{content-negotiation,error-handler}.js`, `src/utils/{api-error,conditional-requests,pagination,validation,method-not-allowed}.js`
 
 **What I fixed/changed:**
+
+---
+
+## Re-commit – Increments 2–4 only
+
+**Date:** 2026-10-04
+
+**Prompts (verbatim):**
+
+> d79c7de78b90d6efc192f8f35e055d4ad4dee580  rollback this commit
+
+> the commit is reversed but i still dont see these files in version control in vs code get it back to it and then make a commit with only a  few files required upto increment 4
+
+**Clarifying questions from the AI, and my answers:** "How do you want to roll it back?" → *Revert commit (safe)*. "How should the 'up to Increment 4' commit be made?" → *Trim code to Inc 4 (Recommended)*.
+
+**What the AI did:** reverted the Increments 2–6 commit, restored the files, and cut the routes back to Increment 4 (plain JSON lists, ETag only for If-Match, a simple error handler) so that commit runs on its own. The Increment 5–6 files were left uncommitted.
+
+**Files changed:** `src/app.js`, `src/middleware/error-handler.js`, `src/routes/{health,provinces,districts,substations,installations,readings}.routes.js`, `src/repositories/{provinces,districts,substations,installations,readings}.repository.js`, `src/utils/{conditional-requests,validation}.js`, `src/validators/reading.validator.js`
+
+**What I fixed/changed:**
+
+---
+
+## Increments 5–8 – Restore 5–6, JWT security, district generation summary
+
+**Date:** 2026-10-04
+
+**Prompt (verbatim):**
+
+> could u carerfully implement the codes upto increment 8(the remain codes) ,dont create files unless required unneccsarily and donr add too many comments in long sentences keep it nice and sweet
+
+**What the AI did:**
+- **Increments 5–6:** restored the pagination, filtering, sorting, conditional GET, error schema and 405/406/415 code from the earlier commit.
+- **Increment 7:**
+  - `POST /tokens` issues an HS256 JWT valid for 1 hour.
+    - Meters (`grant_type: device`) get `readings:write`.
+    - Users (`grant_type: password`) get `generation:read`; admins also get `installations:write`.
+  - Every other `/api/v1` route needs a bearer token: 401 with `WWW-Authenticate` without one.
+  - A missing scope is 403, and so is a meter posting to another installation.
+  - Jurisdiction scoping on every GET: collections are filtered to the caller's province or district, and a member or filter outside it is 403.
+  - The token carries the user's `province_id` and `district_id`, resolved at login, so checks need no extra query.
+  - Substations now also show their `province_id`.
+- **Increment 8:** `GET /districts/{district-id}/generation-summary` reports:
+  - `installation_count`.
+  - `reporting_installations`: latest reading under 30 minutes old.
+  - `current_total_power_kw`: computed with the shared latest-reading query.
+  - `today_energy_kwh`: max − min of each meter since midnight, Asia/Colombo.
+- **OpenAPI:** bearer security scheme, `/tokens`, the summary path, and 401/403 responses.
+
+**Dependency added:** `jsonwebtoken`, to sign and verify the tokens.
+
+**AI aids used:** Claude Code tested the API against a temporary local PostgreSQL in its scratch folder: 101 checks for Increments 2–6, now sending tokens, and 78 for Increments 7–8, with the summary's totals recomputed from the readings endpoints. It validated the OpenAPI document with `@apidevtools/swagger-parser`, which was not added to this project.
+
+**Files changed:** `PROMPTS.md`, `README.md`, `package.json`, `package-lock.json`, `src/docs/openapi.js`, `src/middleware/error-handler.js`, `src/routes/{api,docs,provinces,districts,substations,installations,readings}.routes.js`, `src/repositories/{provinces,districts,substations,installations}.repository.js`; new: `src/middleware/auth.js`, `src/routes/tokens.routes.js`, `src/repositories/users.repository.js`; Increment 5–6 code restored in `src/app.js`, `src/routes/health.routes.js`, `src/repositories/readings.repository.js`, `src/utils/{conditional-requests,validation}.js` and `src/validators/reading.validator.js`
+
+**What I fixed/changed:**

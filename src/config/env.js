@@ -1,10 +1,10 @@
 // All configuration comes from environment variables, so no secret is ever written into the code or the repo.
-// Locally they are loaded from .env (see the npm scripts); on Render they are set in the dashboard.
+// Locally they are loaded from .env (see the npm scripts); on Vercel they are set in the project settings.
 
 function required(name) {
   const value = process.env[name];
   if (!value) {
-    console.error(`Missing environment variable ${name}. Set it in .env locally, or in the Render dashboard.`);
+    console.error(`Missing environment variable ${name}. Set it in .env locally, or in the Vercel project settings.`);
     process.exit(1);
   }
   return value;

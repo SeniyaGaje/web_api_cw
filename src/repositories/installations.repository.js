@@ -28,13 +28,27 @@ async function listInstallations({ provinceId, districtId, substationId, limit, 
   return { count: totals.rows[0].count, lastModified: totals.rows[0].last_modified, results: rows };
 }
 
-// The installation on its own (no related data), or null if it does not exist or was deleted.
+// The installation plus its district_id and province_id (for jurisdiction checks), or null if it does not
+// exist or was deleted.
 async function findInstallation(installationId) {
   const { rows } = await pool.query(
-    `SELECT ${INSTALLATION_COLUMNS} FROM installations i WHERE i.installation_id = $1 AND i.deleted_at IS NULL`,
+    `SELECT ${INSTALLATION_COLUMNS}, s.district_id, d.province_id
+       FROM installations i
+       JOIN substations s ON s.substation_id = i.substation_id
+       JOIN districts d ON d.district_id = s.district_id
+      WHERE i.installation_id = $1 AND i.deleted_at IS NULL`,
     [installationId]
   );
   return rows[0] || null;
+}
+
+// The bcrypt hash a meter's secret is checked against when it asks for a token.
+async function findDeviceSecretHash(installationId) {
+  const { rows } = await pool.query(
+    'SELECT device_secret_hash FROM installations WHERE installation_id = $1 AND deleted_at IS NULL',
+    [installationId]
+  );
+  return rows[0] ? rows[0].device_secret_hash : null;
 }
 
 // §4.3 composite resource: the installation together with its most relevant related data, retrieved in one call:
@@ -125,6 +139,7 @@ async function softDeleteInstallation(installationId) {
 module.exports = {
   listInstallations,
   findInstallation,
+  findDeviceSecretHash,
   findInstallationComposite,
   createInstallation,
   replaceInstallation,

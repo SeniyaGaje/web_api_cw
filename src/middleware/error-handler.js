@@ -19,6 +19,8 @@ function routeNotFound(req, res, next) {
 function errorHandler(err, req, res, next) {
   const error = toApiError(err);
   if (error.status >= 500) console.error(err); // a bug or outage: log the full error, but don't send it to the client
+  // §12: a 401 must say how to authenticate.
+  if (error.status === 401 && !res.get('WWW-Authenticate')) res.set('WWW-Authenticate', 'Bearer realm="slsea-api"');
   res.status(error.status).json({
     code: error.code,
     message: error.message,

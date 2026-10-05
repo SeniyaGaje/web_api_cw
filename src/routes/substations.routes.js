@@ -5,17 +5,21 @@ const { parsePagination, sendPage } = require('../utils/pagination');
 const { sendRepresentation } = require('../utils/conditional-requests');
 const { optionalFilter } = require('../utils/validation');
 const methodNotAllowed = require('../utils/method-not-allowed');
+const { requireScope, requireJurisdiction, jurisdictionFilters } = require('../middleware/auth');
 const substations = require('../repositories/substations.repository');
 
 const router = express.Router();
+router.use(requireScope('generation:read'));
 
-// §4.2 collection resource: all grid substations, paginated.
+// §4.2 collection resource: the grid substations in the caller's jurisdiction, paginated.
 // §10.2 filters: ?province-id=PV-01 and/or ?district-id=DT-01.
 router.get('/', async (req, res) => {
   const pagination = parsePagination(req.query);
-  const provinceId = optionalFilter(req.query, 'province-id');
-  const districtId = optionalFilter(req.query, 'district-id');
-  const page = await substations.listSubstations({ provinceId, districtId, ...pagination });
+  const filters = await jurisdictionFilters(req, {
+    provinceId: optionalFilter(req.query, 'province-id'),
+    districtId: optionalFilter(req.query, 'district-id'),
+  });
+  const page = await substations.listSubstations({ ...filters, ...pagination });
   sendPage(req, res, page, pagination);
 });
 router.all('/', methodNotAllowed('GET'));
@@ -24,6 +28,7 @@ router.all('/', methodNotAllowed('GET'));
 router.get('/:substationId', async (req, res) => {
   const row = await substations.findSubstation(req.params.substationId);
   if (!row) throw new ApiError(404, 'RESOURCE_NOT_FOUND', `Substation ${req.params.substationId} does not exist.`);
+  requireJurisdiction(req, row);
   const { updated_at: lastModified, ...substation } = row;
   sendRepresentation(req, res, substation, lastModified);
 });

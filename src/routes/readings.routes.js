@@ -6,19 +6,22 @@ const ApiError = require('../utils/api-error');
 const { parsePagination, sendPage } = require('../utils/pagination');
 const { sendRepresentation } = require('../utils/conditional-requests');
 const methodNotAllowed = require('../utils/method-not-allowed');
+const { requireScope, requireJurisdiction } = require('../middleware/auth');
 const { validateReading, parseReadingsQuery } = require('../validators/reading.validator');
 const installations = require('../repositories/installations.repository');
 const readings = require('../repositories/readings.repository');
 
 // mergeParams: lets these routes read :installationId from the path this router is mounted on.
 const router = express.Router({ mergeParams: true });
+const canRead = requireScope('generation:read'); // SLSEA users
+const canWrite = requireScope('readings:write'); // meters only
 
 // §4.6 scoped collection: the generation history of one installation (the analytical view).
 // §10.2 pagination and time window (?from=, ?to=), §10.3 sorting (?sort=timestamp or ?sort=-timestamp).
-router.get('/readings', async (req, res) => {
+router.get('/readings', canRead, async (req, res) => {
   const pagination = parsePagination(req.query);
   const { from, to, sort } = parseReadingsQuery(req.query);
-  await requireInstallation(req.params.installationId);
+  await requireReadableInstallation(req);
   const page = await readings.listReadings(req.params.installationId, { from, to, sort, ...pagination });
   sendPage(req, res, page, pagination);
 });
@@ -26,9 +29,13 @@ router.get('/readings', async (req, res) => {
 // The write path: a meter pushes one new reading. §7.3: POST to the collection creates a member, so the answer is
 // 201 Created with a Location header saying where the new reading now lives, plus ETag and Last-Modified.
 // The installation comes from the URI, never from the body. The server sets received_at.
-router.post('/readings', async (req, res) => {
-  const reading = validateReading(req.body, new Date());
+router.post('/readings', canWrite, async (req, res) => {
   const { installationId } = req.params;
+  // A meter may only write its own installation's readings.
+  if (req.auth.sub !== installationId) {
+    throw new ApiError(403, 'WRONG_INSTALLATION', `This token belongs to ${req.auth.sub}, not ${installationId}.`);
+  }
+  const reading = validateReading(req.body, new Date());
   await requireInstallation(installationId);
 
   let created;
@@ -50,9 +57,9 @@ router.post('/readings', async (req, res) => {
 router.all('/readings', methodNotAllowed('GET', 'POST'));
 
 // One reading, so that the Location header returned by POST resolves to a real resource.
-router.get('/readings/:readingId', async (req, res) => {
+router.get('/readings/:readingId', canRead, async (req, res) => {
   const { installationId, readingId } = req.params;
-  await requireInstallation(installationId);
+  await requireReadableInstallation(req);
   // A reading id is a number; anything else cannot exist, so it is simply not found.
   const reading = /^\d{1,18}$/.test(readingId) ? await readings.findReading(installationId, readingId) : null;
   if (!reading) {
@@ -65,9 +72,9 @@ router.all('/readings/:readingId', methodNotAllowed('GET')); // append-only: no 
 // §4.5 processing function resource: the installation's most recent reading (the operational, "right now" view).
 // It is derived on every request using the shared latest-reading rule; it is not a stored field.
 // Reading fields only, without the installation's own details (for those, GET the installation itself).
-router.get('/last-reading', async (req, res) => {
+router.get('/last-reading', canRead, async (req, res) => {
   const { installationId } = req.params;
-  await requireInstallation(installationId);
+  await requireReadableInstallation(req);
   const latest = await readings.findLatestReading(installationId);
   if (!latest) {
     throw new ApiError(404, 'RESOURCE_NOT_FOUND', `Installation ${installationId} has no readings yet.`);
@@ -78,9 +85,16 @@ router.all('/last-reading', methodNotAllowed('GET'));
 
 // Readings of an installation that does not exist (or was deleted) are 404, not an empty list.
 async function requireInstallation(installationId) {
-  if (!(await installations.findInstallation(installationId))) {
+  const installation = await installations.findInstallation(installationId);
+  if (!installation) {
     throw new ApiError(404, 'RESOURCE_NOT_FOUND', `Installation ${installationId} does not exist.`);
   }
+  return installation;
+}
+
+// For reads: the installation must exist (404) and be inside the user's jurisdiction (403).
+async function requireReadableInstallation(req) {
+  requireJurisdiction(req, await requireInstallation(req.params.installationId));
 }
 
 module.exports = router;

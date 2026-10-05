@@ -32,7 +32,8 @@ function pageOf(itemSchemaName) {
 
 // Standard parts of every GET: conditional-request headers in, 304 / 400 / 406 out.
 const conditionalGetParameters = [parameter('IfNoneMatch'), parameter('IfModifiedSince')];
-const getErrors = { 304: response('NotModified'), 406: response('NotAcceptable') };
+const authErrors = { 401: response('Unauthorized'), 403: response('Forbidden') };
+const getErrors = { 304: response('NotModified'), ...authErrors, 406: response('NotAcceptable') };
 
 function collectionGet({ tag, summary, description, item, filters = [] }) {
   return {
@@ -79,11 +80,17 @@ module.exports = {
       '`If-None-Match` / `If-Modified-Since` to get `304 Not Modified` with an empty body, or as `If-Match` on PUT/DELETE ' +
       '(`412` if the resource has changed).\n\n' +
       '**Errors** (every 4xx and 5xx) share one body: `{ code, message, details, more_info }`. A method that a URI does ' +
-      'not support returns `405` with an `Allow` header; readings, for example, cannot be updated or deleted.',
+      'not support returns `405` with an `Allow` header; readings, for example, cannot be updated or deleted.\n\n' +
+      '**Security:** get a token from `POST /api/v1/tokens`, then click **Authorize** and paste it. Meters ' +
+      '(`grant_type: device`) may only push readings for their own installation. SLSEA users (`grant_type: password`) ' +
+      'may only read, and only inside their jurisdiction: collections are filtered to it, and anything outside it is ' +
+      '`403`. Admins may also create, replace and delete installations.',
   },
   servers: [{ url: '/', description: 'This deployment' }],
+  security: [{ bearerAuth: [] }],
   tags: [
     { name: 'Health', description: 'Service status' },
+    { name: 'Authentication', description: 'Tokens for meters and SLSEA users' },
     { name: 'Hierarchy', description: 'Provinces, districts and grid substations (read-only, managed by the seed data)' },
     { name: 'Installations', description: 'Rooftop solar installations (the metered assets)' },
     { name: 'Readings', description: 'Generation readings: an append-only time series per installation' },
@@ -95,7 +102,28 @@ module.exports = {
         tags: ['Health'],
         summary: 'Health check',
         description: 'Shows that the service is running. It is outside /api/v1 and does not touch the database.',
+        security: [],
         responses: { 200: { description: 'The service is up.', content: jsonContent(schema('Health')) }, 406: response('NotAcceptable') },
+      },
+    },
+
+    '/api/v1/tokens': {
+      post: {
+        tags: ['Authentication'],
+        summary: 'Get an access token',
+        description:
+          'Exchanges credentials for a JWT (HS256, valid for 1 hour). A meter sends `grant_type: device` and gets the ' +
+          '`readings:write` scope. An SLSEA user sends `grant_type: password` and gets `generation:read` (admins also ' +
+          '`installations:write`). Tokens are not stored. Test credentials are in TEST-CREDENTIALS.md.',
+        security: [],
+        requestBody: { required: true, content: jsonContent(schema('TokenRequest')) },
+        responses: {
+          200: { description: 'The token.', content: jsonContent(schema('Token')) },
+          400: response('BadRequest'),
+          401: response('Unauthorized'),
+          406: response('NotAcceptable'),
+          415: response('UnsupportedMediaType'),
+        },
       },
     },
 
@@ -117,6 +145,19 @@ module.exports = {
     },
     '/api/v1/districts/{district-id}': {
       get: memberGet({ tag: 'Hierarchy', summary: 'Get one district', idParameter: 'DistrictId', item: 'District' }),
+    },
+
+    '/api/v1/districts/{district-id}/generation-summary': {
+      get: {
+        tags: ['Hierarchy'],
+        summary: 'Get the generation summary of a district',
+        description:
+          'A processing-function resource, computed on each request across every active installation in the district. ' +
+          '`reporting_installations` have a latest reading less than 30 minutes old; `current_total_power_kw` sums those ' +
+          "readings. `today_energy_kwh` is each meter's growth since midnight in Sri Lanka, summed.",
+        parameters: [parameter('DistrictId'), ...conditionalGetParameters],
+        responses: { 200: withValidators('The summary.', schema('GenerationSummary')), ...getErrors, 404: response('NotFound') },
+      },
     },
 
     '/api/v1/substations': {
@@ -146,7 +187,7 @@ module.exports = {
         tags: ['Installations'],
         summary: 'Register a new installation',
         description:
-          'Creates an installation. The server assigns its `installation_id`. `device_secret` is the secret its meter will ' +
+          'Admin only. Creates an installation. The server assigns its `installation_id`. `device_secret` is the secret its meter will ' +
           'authenticate with; it is stored only as a hash and never returned.',
         requestBody: { required: true, content: jsonContent(schema('InstallationCreate')) },
         responses: {
@@ -154,6 +195,7 @@ module.exports = {
             Location: { $ref: '#/components/headers/Location' },
           }),
           400: response('BadRequest'),
+          ...authErrors,
           406: response('NotAcceptable'),
           409: response('Conflict'),
           415: response('UnsupportedMediaType'),
@@ -176,7 +218,7 @@ module.exports = {
         tags: ['Installations'],
         summary: 'Replace an installation',
         description:
-          'Full replacement, not a partial update: optional fields left out (`address`, `commissioned_on`) are cleared. ' +
+          'Admin only. Full replacement, not a partial update: optional fields left out (`address`, `commissioned_on`) are cleared. ' +
           'Idempotent. Send the ETag from a previous GET as `If-Match` to avoid overwriting someone else\'s change. The ' +
           'composite\'s ETag also covers its latest reading, which changes every 15 minutes, so GET again just before.',
         parameters: [parameter('InstallationId'), parameter('IfMatch')],
@@ -184,6 +226,7 @@ module.exports = {
         responses: {
           200: withValidators('Replaced. The body is the updated installation.', schema('InstallationComposite')),
           400: response('BadRequest'),
+          ...authErrors,
           404: response('NotFound'),
           406: response('NotAcceptable'),
           409: response('Conflict'),
@@ -195,11 +238,12 @@ module.exports = {
         tags: ['Installations'],
         summary: 'Delete an installation',
         description:
-          'Soft delete: the installation disappears from the API (afterwards every request for it, including a second ' +
+          'Admin only. Soft delete: the installation disappears from the API (afterwards every request for it, including a second ' +
           'DELETE, returns 404), but its readings are kept as history. Honours `If-Match`.',
         parameters: [parameter('InstallationId'), parameter('IfMatch')],
         responses: {
           200: { description: 'Deleted.', content: jsonContent(schema('DeletedInstallation')) },
+          ...authErrors,
           404: response('NotFound'),
           406: response('NotAcceptable'),
           412: response('PreconditionFailed'),
@@ -234,13 +278,14 @@ module.exports = {
         tags: ['Readings'],
         summary: 'Push a new reading (meter)',
         description:
-          'Appends one reading for this installation. The installation is taken from the URI, never from the body; the ' +
+          'Meters only, with a token for this installation. Appends one reading for this installation. The installation is taken from the URI, never from the body; the ' +
           'server sets `received_at`. Readings cannot be changed or deleted afterwards.',
         parameters: [parameter('InstallationId')],
         requestBody: { required: true, content: jsonContent(schema('ReadingCreate')) },
         responses: {
           201: withValidators('Created. The body is the stored reading.', schema('Reading'), { Location: { $ref: '#/components/headers/Location' } }),
           400: response('BadRequest'),
+          ...authErrors,
           404: response('NotFound'),
           406: response('NotAcceptable'),
           409: response('Conflict'),
@@ -273,6 +318,10 @@ module.exports = {
   },
 
   components: {
+    securitySchemes: {
+      bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'The access_token from POST /api/v1/tokens.' },
+    },
+
     parameters: {
       ProvinceId: { name: 'province-id', in: 'path', required: true, schema: { type: 'string' }, example: 'PV-01' },
       DistrictId: { name: 'district-id', in: 'path', required: true, schema: { type: 'string' }, example: 'DT-01' },
@@ -317,6 +366,15 @@ module.exports = {
 
     responses: {
       NotModified: { description: 'Not Modified: your cached copy is current. Empty body.' },
+      Unauthorized: {
+        description: 'Unauthorized: no token, an invalid or expired token, or wrong credentials.',
+        headers: { 'WWW-Authenticate': { schema: { type: 'string' }, example: 'Bearer realm="slsea-api", error="invalid_token"' } },
+        content: jsonContent(schema('Error')),
+      },
+      Forbidden: {
+        description: 'Forbidden: the token lacks the scope (e.g. a meter reading data), or the resource is outside your jurisdiction.',
+        content: jsonContent(schema('Error')),
+      },
       BadRequest: { description: 'Bad Request: the body or a query parameter is not valid.', content: jsonContent(schema('Error')) },
       NotFound: { description: 'Not Found: no resource with that id (or it was deleted).', content: jsonContent(schema('Error')) },
       NotAcceptable: { description: 'Not Acceptable: the Accept header rules out application/json.', content: jsonContent(schema('Error')) },
@@ -344,11 +402,12 @@ module.exports = {
       },
       Substation: {
         type: 'object',
-        required: ['substation_id', 'name', 'district_id'],
+        required: ['substation_id', 'name', 'district_id', 'province_id'],
         properties: {
           substation_id: { type: 'string', example: 'SS-001' },
           name: { type: 'string', example: 'Kolonnawa Grid Substation' },
           district_id: { type: 'string', example: 'DT-01' },
+          province_id: { type: 'string', example: 'PV-01' },
         },
       },
 
@@ -444,6 +503,52 @@ module.exports = {
           power_kw: { type: 'number', minimum: 0, example: 11.5 },
           energy_kwh: { type: 'number', minimum: 0, example: 301494.5 },
           voltage_v: { type: 'number', minimum: 0, maximum: 1000, example: 230.1 },
+        },
+      },
+
+      TokenRequest: {
+        oneOf: [
+          {
+            type: 'object',
+            title: 'Meter',
+            required: ['grant_type', 'installation_id', 'device_secret'],
+            properties: {
+              grant_type: { type: 'string', enum: ['device'] },
+              installation_id: { type: 'string', example: 'INS-0001' },
+              device_secret: { type: 'string', example: '000aa79c2f02b49df154ad48d53b3cd4' },
+            },
+          },
+          {
+            type: 'object',
+            title: 'SLSEA user',
+            required: ['grant_type', 'username', 'password'],
+            properties: {
+              grant_type: { type: 'string', enum: ['password'] },
+              username: { type: 'string', example: 'colombo.operator' },
+              password: { type: 'string', example: 'SolarColombo26' },
+            },
+          },
+        ],
+      },
+      Token: {
+        type: 'object',
+        required: ['access_token', 'token_type', 'expires_in'],
+        properties: {
+          access_token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
+          token_type: { type: 'string', example: 'Bearer' },
+          expires_in: { type: 'integer', description: 'Seconds until the token expires.', example: 3600 },
+        },
+      },
+      GenerationSummary: {
+        type: 'object',
+        required: ['district_id', 'as_of', 'installation_count', 'reporting_installations', 'current_total_power_kw', 'today_energy_kwh'],
+        properties: {
+          district_id: { type: 'string', example: 'DT-01' },
+          as_of: { type: 'string', format: 'date-time', description: 'When the summary was computed.' },
+          installation_count: { type: 'integer', description: 'Active installations in the district.', example: 12 },
+          reporting_installations: { type: 'integer', description: 'Installations whose latest reading is under 30 minutes old.', example: 12 },
+          current_total_power_kw: { type: 'number', description: "Sum of those latest readings' power.", example: 84.215 },
+          today_energy_kwh: { type: 'number', description: 'Energy generated since midnight (Asia/Colombo).', example: 412.906 },
         },
       },
 
