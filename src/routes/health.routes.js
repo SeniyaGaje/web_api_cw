@@ -1,4 +1,5 @@
 const express = require('express');
+const methodNotAllowed = require('../utils/method-not-allowed');
 
 const router = express.Router();
 
@@ -7,5 +8,6 @@ const router = express.Router();
 router.get('/', (req, res) => {
   res.json({ status: 'ok' });
 });
+router.all('/', methodNotAllowed('GET'));
 
 module.exports = router;

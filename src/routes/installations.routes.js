@@ -3,20 +3,29 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const ApiError = require('../utils/api-error');
+const { parsePagination, sendPage } = require('../utils/pagination');
 const { sendRepresentation, checkIfMatch } = require('../utils/conditional-requests');
+const { optionalFilter } = require('../utils/validation');
+const methodNotAllowed = require('../utils/method-not-allowed');
 const { validateInstallation } = require('../validators/installation.validator');
 const installations = require('../repositories/installations.repository');
 const substations = require('../repositories/substations.repository');
 
 const router = express.Router();
 
-// §4.2 collection resource: all active installations.
+// §4.2 collection resource: all active installations, paginated.
+// §10.2 filters by jurisdiction: ?province-id=, ?district-id=, ?substation-id= (they can be combined).
 router.get('/', async (req, res) => {
-  res.json(await installations.listInstallations());
+  const pagination = parsePagination(req.query);
+  const provinceId = optionalFilter(req.query, 'province-id');
+  const districtId = optionalFilter(req.query, 'district-id');
+  const substationId = optionalFilter(req.query, 'substation-id');
+  const page = await installations.listInstallations({ provinceId, districtId, substationId, ...pagination });
+  sendPage(req, res, page, pagination);
 });
 
-// §7.3: POST to a collection creates a new member -> 201 Created and a Location header saying where the new
-// installation now lives.
+// §7.3: POST to a collection creates a new member -> 201 Created, a Location header saying where the new
+// installation now lives, and ETag / Last-Modified for the representation returned in the body.
 router.post('/', async (req, res) => {
   const input = validateInstallation(req.body, { creating: true });
   await requireSubstation(input.substation_id);
@@ -31,12 +40,14 @@ router.post('/', async (req, res) => {
 
   const created = await installations.findInstallationComposite(installationId);
   res.location(`/api/v1/installations/${installationId}`);
-  sendRepresentation(res, created, 201);
+  sendRepresentation(req, res, created, lastModifiedOf(created), 201);
 });
+router.all('/', methodNotAllowed('GET', 'POST'));
 
 // §4.3 composite resource: the installation, where it sits in the hierarchy, and its latest reading.
 router.get('/:installationId', async (req, res) => {
-  sendRepresentation(res, await findCompositeOr404(req.params.installationId));
+  const installation = await findCompositeOr404(req.params.installationId);
+  sendRepresentation(req, res, installation, lastModifiedOf(installation));
 });
 
 // §7.2 PUT replaces the whole installation (it is not a partial update: optional fields that are left out are
@@ -53,7 +64,8 @@ router.put('/:installationId', async (req, res) => {
     throw conflictError(err);
   }
 
-  sendRepresentation(res, await findCompositeOr404(req.params.installationId));
+  const updated = await findCompositeOr404(req.params.installationId);
+  sendRepresentation(req, res, updated, lastModifiedOf(updated));
 });
 
 // §7.4 DELETE: a soft delete. The installation disappears from the API (a second DELETE, or any GET, is 404),
@@ -70,6 +82,7 @@ router.delete('/:installationId', async (req, res) => {
     message: 'The installation was deleted. Its readings are kept as history.',
   });
 });
+router.all('/:installationId', methodNotAllowed('GET', 'PUT', 'DELETE'));
 
 async function findCompositeOr404(installationId) {
   const installation = await installations.findInstallationComposite(installationId);
@@ -88,6 +101,14 @@ async function requireSubstation(substationId) {
       { field: 'substation_id', issue: `substation ${substationId} does not exist` },
     ]);
   }
+}
+
+// The composite changes when either the installation or its latest reading changes, so Last-Modified is
+// whichever of the two is newer.
+function lastModifiedOf(installation) {
+  const times = [installation.updated_at];
+  if (installation.last_reading) times.push(installation.last_reading.received_at);
+  return new Date(Math.max(...times.map((time) => new Date(time).getTime())));
 }
 
 // meter_id is UNIQUE: a second installation with the same meter breaks the constraint (Postgres error 23505).

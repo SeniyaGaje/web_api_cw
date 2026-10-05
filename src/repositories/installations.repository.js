@@ -7,11 +7,25 @@ const { findLatestReading } = require('./readings.repository');
 const INSTALLATION_COLUMNS =
   'i.installation_id, i.meter_id, i.substation_id, i.capacity_kw, i.address, i.commissioned_on, i.created_at, i.updated_at';
 
-async function listInstallations() {
+// Filters by province, district or substation (§10.2). "$1::text IS NULL OR ..." means: when that filter
+// was not given, don't filter on it.
+const LIST_FROM_WHERE = `
+  FROM installations i
+  JOIN substations s ON s.substation_id = i.substation_id
+  JOIN districts d ON d.district_id = s.district_id
+  WHERE i.deleted_at IS NULL
+    AND ($1::text IS NULL OR d.province_id = $1)
+    AND ($2::text IS NULL OR s.district_id = $2)
+    AND ($3::text IS NULL OR i.substation_id = $3)`;
+
+async function listInstallations({ provinceId, districtId, substationId, limit, offset }) {
+  const filters = [provinceId, districtId, substationId];
+  const totals = await pool.query(`SELECT count(*) AS count, max(i.updated_at) AS last_modified ${LIST_FROM_WHERE}`, filters);
   const { rows } = await pool.query(
-    `SELECT ${INSTALLATION_COLUMNS} FROM installations i WHERE i.deleted_at IS NULL ORDER BY i.installation_id`
+    `SELECT ${INSTALLATION_COLUMNS} ${LIST_FROM_WHERE} ORDER BY i.installation_id LIMIT $4 OFFSET $5`,
+    [...filters, limit, offset]
   );
-  return rows;
+  return { count: totals.rows[0].count, lastModified: totals.rows[0].last_modified, results: rows };
 }
 
 // The installation on its own (no related data), or null if it does not exist or was deleted.

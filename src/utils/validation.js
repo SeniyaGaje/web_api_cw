@@ -1,4 +1,4 @@
-// Small checks shared by the validators.
+// Small checks shared by the validators and the query-string parsers.
 const ApiError = require('./api-error');
 
 // An ISO 8601 date-time that states its time zone, e.g. 2026-10-02T10:15:00Z or 2026-10-02T15:45:00+05:30.
@@ -28,6 +28,24 @@ function isCalendarDate(value) {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+// For query parameters that may be a date-time or a plain date ('2026-10-02' means midnight UTC on that day).
+function parseDateOrDateTime(value) {
+  if (isCalendarDate(value)) return new Date(`${value}T00:00:00Z`);
+  return parseDateTime(value);
+}
+
+// Reads an optional filter such as ?province-id=PV-01. Missing -> null (no filtering).
+function optionalFilter(query, name) {
+  const value = query[name];
+  if (value === undefined) return null;
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new ApiError(400, 'INVALID_QUERY_PARAMETER', `The ${name} filter is not valid.`, [
+      { field: name, issue: 'must be given once, as a non-empty identifier' },
+    ]);
+  }
+  return value;
+}
+
 // The request body must be a JSON object such as { "power_kw": 1.2 }, not an array, a number or nothing at all.
 function requireObjectBody(body) {
   if (!isPlainObject(body)) {
@@ -42,5 +60,7 @@ module.exports = {
   isFiniteNumber,
   parseDateTime,
   isCalendarDate,
+  parseDateOrDateTime,
+  optionalFilter,
   requireObjectBody,
 };

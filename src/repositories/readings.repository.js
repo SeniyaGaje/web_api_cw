@@ -4,13 +4,25 @@ const { pool } = require('../db/pool');
 // A reading as the API shows it.
 const READING_COLUMNS = 'reading_id, installation_id, timestamp, received_at, power_kw, energy_kwh, voltage_v';
 
-// One installation's history (§4.6 scoped collection), newest first.
-async function listReadings(installationId) {
+// One installation's history (§4.6 scoped collection), with the time-window filter and sorting of §10.2/§10.3.
+// from is inclusive and to is exclusive, so back-to-back windows never count a reading twice.
+// "$2::timestamptz IS NULL OR ..." means: when that bound was not given, don't filter on it.
+async function listReadings(installationId, { from, to, sort, limit, offset }) {
+  const fromWhere = `
+    FROM readings
+    WHERE installation_id = $1
+      AND ($2::timestamptz IS NULL OR timestamp >= $2)
+      AND ($3::timestamptz IS NULL OR timestamp < $3)`;
+  const filters = [installationId, from, to];
+  // Only 'timestamp' and '-timestamp' get past the validator, so the direction is always one of these two words.
+  const direction = sort === 'timestamp' ? 'ASC' : 'DESC';
+
+  const totals = await pool.query(`SELECT count(*) AS count, max(received_at) AS last_modified ${fromWhere}`, filters);
   const { rows } = await pool.query(
-    `SELECT ${READING_COLUMNS} FROM readings WHERE installation_id = $1 ORDER BY timestamp DESC`,
-    [installationId]
+    `SELECT ${READING_COLUMNS} ${fromWhere} ORDER BY timestamp ${direction} LIMIT $4 OFFSET $5`,
+    [...filters, limit, offset]
   );
-  return rows;
+  return { count: totals.rows[0].count, lastModified: totals.rows[0].last_modified, results: rows };
 }
 
 // One reading, only if it belongs to the given installation (so the URI cannot mix installations up).

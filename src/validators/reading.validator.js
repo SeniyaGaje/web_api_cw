@@ -1,9 +1,11 @@
-// Checks a reading pushed by a meter (POST .../readings).
+// Checks a reading pushed by a meter (POST .../readings) and the query string of the readings history (GET .../readings).
 const ApiError = require('../utils/api-error');
-const { isFiniteNumber, parseDateTime, requireObjectBody } = require('../utils/validation');
+const { isFiniteNumber, parseDateTime, parseDateOrDateTime, requireObjectBody } = require('../utils/validation');
 
 const READING_FIELDS = ['timestamp', 'power_kw', 'energy_kwh', 'voltage_v'];
 const MAX_CLOCK_AHEAD_MS = 5 * 60 * 1000; // a meter's clock may run up to 5 minutes fast
+const SORT_OPTIONS = ['timestamp', '-timestamp']; // '-' means newest first
+
 // Returns { timestamp (a Date), power_kw, energy_kwh, voltage_v }.
 function validateReading(body, now) {
   requireObjectBody(body);
@@ -41,4 +43,32 @@ function whyNotAllowed(field) {
   return 'is not a field of a reading';
 }
 
-module.exports = { validateReading };
+// ?from= / ?to= (§10.2 time window) and ?sort= (§10.3). Returns { from, to, sort }; from and to may be null.
+function parseReadingsQuery(query) {
+  const details = [];
+  const from = optionalTime(query, 'from', details);
+  const to = optionalTime(query, 'to', details);
+  const sort = query.sort === undefined ? '-timestamp' : query.sort; // newest first unless asked otherwise
+
+  if (from && to && from > to) {
+    details.push({ field: 'from', issue: 'must not be later than to' });
+  }
+  if (!SORT_OPTIONS.includes(sort)) {
+    details.push({ field: 'sort', issue: 'must be timestamp (oldest first) or -timestamp (newest first)' });
+  }
+  if (details.length > 0) {
+    throw new ApiError(400, 'INVALID_QUERY_PARAMETER', 'The query parameters are not valid.', details);
+  }
+  return { from, to, sort };
+}
+
+function optionalTime(query, name, details) {
+  if (query[name] === undefined) return null;
+  const time = parseDateOrDateTime(query[name]);
+  if (!time) {
+    details.push({ field: name, issue: 'must be an ISO 8601 date (2026-10-01) or date-time with a time zone (2026-10-01T06:00:00Z)' });
+  }
+  return time;
+}
+
+module.exports = { validateReading, parseReadingsQuery };
