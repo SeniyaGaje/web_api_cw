@@ -55,6 +55,20 @@ function memberGet({ tag, summary, description, idParameter, item }) {
   };
 }
 
+// The seeded test logins, offered in Swagger's Examples list on POST /tokens. The first one is the default.
+const userLogin = (summary, username, password) => ({ summary, value: { grant_type: 'password', username, password } });
+const loginExamples = {
+  national: userLogin('National analyst: reads everything', 'national.analyst', 'SolarNational26'),
+  western: userLogin('Western Province operator: reads PV-01 only', 'western.operator', 'SolarWestern26'),
+  colombo: userLogin('Colombo district operator: reads DT-01 only', 'colombo.operator', 'SolarColombo26'),
+  gampaha: userLogin('Gampaha district operator: reads DT-02 only', 'gampaha.operator', 'SolarGampaha26'),
+  admin: userLogin('Admin: reads everything, manages installations', 'slsea.admin', 'SolarAdmin26'),
+  meter: {
+    summary: 'Meter INS-0001: can only POST its own readings',
+    value: { grant_type: 'device', installation_id: 'INS-0001', device_secret: '000aa79c2f02b49df154ad48d53b3cd4' },
+  },
+};
+
 const readingExample = {
   reading_id: 672,
   installation_id: 'INS-0001',
@@ -110,13 +124,20 @@ module.exports = {
     '/api/v1/tokens': {
       post: {
         tags: ['Authentication'],
-        summary: 'Get an access token',
+        summary: 'Log in: get an access token',
         description:
-          'Exchanges credentials for a JWT (HS256, valid for 1 hour). A meter sends `grant_type: device` and gets the ' +
-          '`readings:write` scope. An SLSEA user sends `grant_type: password` and gets `generation:read` (admins also ' +
-          '`installations:write`). Tokens are not stored. Test credentials are in TEST-CREDENTIALS.md.',
+          'Exchanges credentials for a JWT (HS256, valid for 1 hour). Pick a login from the **Examples** list, ' +
+          'Execute, then paste the `access_token` into **Authorize**.\n\n' +
+          '- SLSEA users (`grant_type: password`) get `generation:read`: they can read, inside their jurisdiction. ' +
+          'The admin also gets `installations:write`.\n' +
+          '- A meter (`grant_type: device`) gets `readings:write`: it can only POST readings for its own installation, ' +
+          'so any GET with a meter token is 403.\n\n' +
+          'Tokens are not stored. All test credentials are in TEST-CREDENTIALS.md.',
         security: [],
-        requestBody: { required: true, content: jsonContent(schema('TokenRequest')) },
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: schema('TokenRequest'), examples: loginExamples } },
+        },
         responses: {
           200: { description: 'The token.', content: jsonContent(schema('Token')) },
           400: response('BadRequest'),

@@ -25,7 +25,9 @@ function requireScope(scope) {
   return (req, res, next) => {
     if (!req.auth.scope.split(' ').includes(scope)) {
       res.set('WWW-Authenticate', `Bearer realm="slsea-api", error="insufficient_scope", scope="${scope}"`);
-      throw new ApiError(403, 'INSUFFICIENT_SCOPE', `This request needs the ${scope} scope.`);
+      throw new ApiError(403, 'INSUFFICIENT_SCOPE', `This request needs the ${scope} scope.`, [
+        { field: 'Authorization', issue: `this token only has: ${req.auth.scope}` },
+      ]);
     }
     next();
   };
