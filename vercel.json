@@ -1,4 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["sin1"]
+  "regions": ["sin1"],
+  "crons": [
+    { "path": "/api/v1/provinces", "schedule": "0 0 * * *" },
+    { "path": "/api/v1/districts", "schedule": "0 6 * * *" },
+    { "path": "/api/v1/substations", "schedule": "0 12 * * *" },
+    { "path": "/api/v1/installations", "schedule": "0 18 * * *" }
+  ]
 }

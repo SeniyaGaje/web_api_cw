@@ -123,7 +123,9 @@ Use `curl.exe`, not `curl`: in Windows PowerShell 5.1, `curl` is an alias for `I
 
 ### How the readings stay current on Vercel
 
-Vercel runs the API only while a request is being handled; nothing runs in between. So before each `/api/v1` request, `keep-readings-current` checks whether a new 15-minute slot has started since the readings were last filled in. If one has, it generates the missing readings (once per slot per instance, under a database lock). After a long idle period only the last day is filled in, so the triggering request stays fast. Older missing slots remain as a gap, as if the meters had been offline. Re-run `npm run seed` against the main branch to restore an unbroken 7-day history.
+Vercel runs the API only while a request is being handled; nothing runs in between. So before each `/api/v1` request, `keep-readings-current` checks whether a new 15-minute slot has started since the readings were last filled in. If one has, it generates the missing readings (once per slot per instance, under a database lock). One request fills in at most the last day, so the triggering request stays fast.
+
+To stop the API ever sitting idle for a day, `vercel.json` defines four Vercel Cron Jobs that request `/api/v1` at 00:00, 06:00, 12:00 and 18:00 UTC. The Hobby plan allows each job to run only once a day, give or take an hour, so four jobs six hours apart guarantee a request at least every seven hours. The cron requests carry no token, so they receive 401, but the readings are filled in before authentication runs. Re-run `npm run seed` against the main branch if you ever need to restore an unbroken 7-day history.
 
 ## npm scripts
 
